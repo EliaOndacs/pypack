@@ -32,16 +32,20 @@ class ResourceScheme:
 class ConfigLoader:
     def __init__(self, code: str) -> None:
         self.tcl = Tcl()
-        self.__output__: dict[str, Any] = {"files": [], "output": "bundle.py"}
+        self.__output__: dict[str, Any] = {"files": [], "output": "bundle.py", "fix-escape": False}
         self._setup()
         self._code = code
 
     def _setup(self):
         self.tcl.createcommand("packadd", self.packadd)
         self.tcl.createcommand("set-output", self.set_output)
+        self.tcl.createcommand("fix-escape", self.fix_escape)
 
     def set_output(self, new_path: str):
         self.__output__["output"] = new_path
+
+    def fix_escape(self):
+        self.__output__["fix-escape"] = True
 
     def packadd(self, file):
         self.__output__["files"].append(ResourceScheme(file))
@@ -437,8 +441,29 @@ class UiBase:
         print("\x1b[H\x1b[2J", end="")
 
 from pathlib import Path
+import sys
 
-def main():
+help_description: str = rf"""
+
+                              _
+ _ __  _   _ _ __   __ _  ___| | __
+| '_ \| | | | '_ \ / _` |/ __| |/ /
+| |_) | |_| | |_) | (_| | (__|   <
+| .__/ \__, | .__/ \__,_|\___|_|\_\
+|_|    |___/|_|
+
+
+{Padding.center(str(Title("pypack is a bundler for python")))}
+"""
+
+def main(argv: list[str], argc: int):
+
+    if argc >= 2:
+        if "--help" in argv:
+            print(help_description)
+            print()
+            return
+
 
     log = get_logger()
 
@@ -455,7 +480,7 @@ def main():
 
     buffs: list[Buffer] = []
 
-    for file in cfg.get("files"):
+    for file in cfg.get("files", []):
         new = Buffer(Path(file.path).read_text(), file.fn)
 
         buffs.append(new)
@@ -468,16 +493,22 @@ def main():
                 log.info("Bundler",f"removing `{line=}` from the final bundle.")
                 continue
             if "pack:escape" in no_space:
+                if cfg.get("fix-escape", False):
+                    line = line.replace("\\", "\\\\")
                 log.warn("Bundler", f"escaping `{line=}`.")
             result += line + "\n"
 
-    Path(cfg.get("output")).write_text(result) # pyright: ignore
+    try:
+        Path(cfg.get("output")).write_text(result) # pyright: ignore
+    except Exception as err:
+        log.error("Save()", repr(err))
     log.info("Writer", f"done writing the bundle to {cfg.get("output")=}.")
 
+    
 
     return
 
 
 if __name__ == "__main__":
-    main()
+    main(sys.argv, len(sys.argv))
 # end main
