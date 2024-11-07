@@ -5,29 +5,160 @@ the base ui library for a centerlised theme cli ui among SysCoreutil & SysEnv
 
 """
 
-from typing import Any, Callable, Generator, Literal, NamedTuple, overload
+from typing import (
+    Any,
+    Generator,
+    Iterable,
+    Literal,
+    NamedTuple,
+)
 from ansi.colour import *  # type: ignore
 import sys
 
 
-def ascii_border(text):
+class Style:
+    "style object for all styles of all components"
+
+    def __init__(self, options: dict[str, Any]):
+        self.__data__: dict[str, Any] = options
+        self.get = self.__data__.get
+
+    def __repr__(self):
+        return f"[object of 'Style' id: {hex(id(self))!r} size: {self.__sizeof__()!r}]"
+
+    def __setitem__(self, key, value):
+        self.__data__[key] = value
+
+    def __getitem__(self, key):
+        return self.__data__[key]
+
+
+AT_STYLE = "Style"
+AT_DISPLAY = "Display"
+
+
+def make_auto(_type, instance):
+    "turn an object to an auto object"
+    if _type == "Style":
+        globals()["@auto[style]"] = instance
+        return
+    elif _type == "Display":
+        globals()["@auto[display]"] = instance
+        return
+
+    raise TypeError(f"type {_type!r} it not supported as an auto object!")
+
+
+def get_style(style: Style | None):
+    "get the the aut style if exsist or None or the past style pram"
+    if style:
+        return style
+    if "@auto[style]" in globals():
+        return globals()["@auto[style]"]
+
+
+class Animation:
+    "Base Object For All Animations"
+
+    class Frame:
+        def __init__(self, text: str) -> None:
+            self.text: str = text
+
+    @classmethod
+    def FramesFromList(cls, frames: list[Any]) -> list["Animation.Frame"]:
+        result = []
+        for frame in frames:
+            result.append(Animation.Frame(str(frame)))
+
+        return result
+
+    def __init__(self, frames: list["Animation.Frame"]) -> None:
+        self.frames = frames
+        self.frameI = 0
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        self.frameI += 1
+
+    def __str__(self) -> str:
+        return self.frames[self.frameI % len(self.frames)].text
+
+
+class Measurements(NamedTuple):
+    """Measurements of an text"""
+
+    columns: int
+    lines: int
+    text: str
+
+    @classmethod
+    def measure(cls, text: str):
+        "measure a text"
+        l = text.split("\n")
+        max_columns = len(max(l, key=len))
+        return Measurements(max_columns, len(l), text)
+
+
+class Block:
+    """A Block Of Text (a multiline text)"""
+
+    def __init__(self, raw: str) -> None:
+        self._raw = raw  # very unsafe, but might be required later
+        self.measurments = Measurements.measure(self._raw)
+        self.text: list[str] = self._raw.split("\n")
+
+    def render(self) -> Generator[str, None, None]:
+        for line in self.text:
+            yield line
+
+    def __str__(self) -> str:
+        return "\n".join(self.text)
+
+def deleteText(text: str):
+    return "\b"*len(text)
+
+def ascii_border(text, style: Style | None = None):
+    "make an ascii border around the `text`"
+    style = get_style(style)
     lines = text.split("\n")
     max_len = max(len(line) for line in lines)
-    border_char = "-"
-    border = border_char * (max_len + 4)
+    if style:
+        border_char = style.get("ascii_border", "-")
+        border_vertical_char = style.get("border_vertical_char", "|")
+    else:
+        border_char = "-"
+        border_vertical_char = "|"
+    border = border_char * (max_len + 2)
     result = []
     for line in lines:
-        bordered_line = f"| {line.ljust(max_len)} |"
+        bordered_line = (
+            f"{border_vertical_char}{line.ljust(max_len)}{border_vertical_char}"
+        )
         result.append(bordered_line)
     result.insert(0, border)
     result.append(border)
     return "\n".join(result)
 
 
+def VerticalLabel(text: str):
+    return "\n".join(list(text))
+
+
 class ProgressBar:
-    def __init__(self, default: int = 0, max: int = 100, size: int = 10) -> None:
+    "ProgressBar Component"
+
+    def __init__(
+        self,
+        default: int = 0,
+        max: int = 100,
+        size: int = 10,
+        style: Style | None = None,
+    ) -> None:
         self.value = default
         self.max = max
+        self.style = get_style(style)
         self.size = size
 
     def update(self, ammount: int = 1):
@@ -38,43 +169,59 @@ class ProgressBar:
 
     def __str__(self):
         result = ""
+        if self.style:
+            left = self.style.get("ProgressBar.left", "<")
+            right = self.style.get("ProgressBar.right", ">")
+            tip = self.style.get("ProgressBar.tip", "o")
+            line_off = self.style.get("ProgressBar.lineOff", "-")
+            line_on = self.style.get("ProgressBar.lineOn", "-")
+            on_color = self.style.get("ProgressBar.color:on", fg.cyan)
+            off_color = self.style.get("ProgressBar.color:off", fg.grey)
+        else:
+            left = "<"
+            right = ">"
+            tip = "o"
+            line_on = "-"
+            line_off = "-"
+            on_color = fg.cyan
+            off_color = fg.grey
         ammount_filled: int = self.value * self.size // self.max
         for i in range(ammount_filled):
-            result += fg.cyan("o") if i == (ammount_filled - 1) else fg.cyan("-")
-        result += fg.gray("-") * (self.size - ammount_filled)
+            result += (
+                (on_color + tip) if i == (ammount_filled - 1) else (on_color + line_on)
+            )
+        result += (off_color + line_off) * (self.size - ammount_filled)
 
-        return f"<{result}>"
+        return f"{left}{result}{right}\x1b[0m"
 
 
 class Spinner:
+    "Spiner Component (Composition `Animation` object with an default animation)"
 
-    class SpinnerAnimation(NamedTuple):
-        frames: list[str]
+    def _get_default_animation(self) -> Animation:
+        return Animation(
+            Animation.FramesFromList(["|", "/", "─", "\\", "|", "/", "─", "\\"])
+        )
 
-    default_animation = SpinnerAnimation(
-        ["(|)", "(/)", "(─)", "(\\)", "(|)", "(/)", "(─)", "(\\)"]
-    )
-
-    def __init__(self, animation: None | SpinnerAnimation = None) -> None:
-        self.animation: "Spinner.SpinnerAnimation" = animation if animation != None else self.default_animation  # type: ignore
-        self.frame: int = 0
+    def __init__(self, animation: None | Animation = None) -> None:
+        self.animation: "Animation" = animation if animation != None else self._get_default_animation  # type: ignore
 
     def __iter__(self):
         return self
 
     def __next__(self):
-        self.frame += 1
-        return
+        next(self.animation)
 
     def __str__(self):
-        result = self.animation.frames[self.frame % len(self.animation.frames)]
-
-        return f"{result}"
+        return str(self.animation)
 
 
 class DataTable:
+    "DataTable component"
 
     class Column:
+        "A Column Object For DataTable.Row"
+
         def __init__(self, text: str) -> None:
             self.text = text
 
@@ -82,11 +229,14 @@ class DataTable:
             return self.text
 
     class Row:
+        "A Row Object for DataTable"
+
         def __init__(self, *cols) -> None:
             self.cols = cols
 
-    def __init__(self) -> None:
+    def __init__(self, style: Style | None = None) -> None:
         self.data: list["DataTable.Row"] = []
+        self.style = get_style(style)
 
     def add_row(self, row: "DataTable.Row"):
         self.data.append(row)
@@ -94,17 +244,28 @@ class DataTable:
     def __str__(self):
         result = ""
 
+        if self.style:
+            seperator = self.style.get("DataTable.seperator", "|")
+            left = self.style.get("DataTable.left", "[")
+            right = self.style.get("DataTable.right", "]")
+        else:
+            seperator = "|"
+            left = "["
+            right = "]"
+
         for row in self.data:
             items = []
             for item in row.cols:
                 items.append(str(item))
 
-            result += f"[{"| ".join(items)}]\n"
+            result += f"{left}{f'{seperator}'.join(items)}{right}\n"
 
         return result
 
 
 class Padding:
+    "Adds Padding For strings"
+
     @classmethod
     def left(cls, text: str, amount: int = 5):
         return (" " * amount) + text
@@ -135,6 +296,8 @@ class Padding:
 
 
 class SwitchText:
+    "SwitchText Atomic, allow you to switch between text on render"
+
     def __init__(self, text_a: str, text_b: str):
         self.text_a = text_a
         self.text_b = text_b
@@ -157,14 +320,23 @@ class SwitchText:
 
 
 class Input:
-    def __init__(self, prompt: str = ""):
+    "Input Component (Only Fires When Try To Convert To A String And Will Return The UserInput)"
+
+    def __init__(self, prompt: str = "", style: Style|None = None):
         self.prompt = prompt
+        self.style = get_style(style)
 
     def __str__(self):
-        return input(self.prompt)
+        if self.style:
+            prompt = self.style.get("Input.promptText", "")
+        else:
+            prompt = ""
+        return input(prompt)
 
 
 class Title:
+    "Title Desighn"
+
     def __init__(self, text: str):
         self.text = f"-[{text}]-"
 
@@ -173,14 +345,27 @@ class Title:
 
 
 class Bar:
-    def __init__(self, *cols) -> None:
+    "Bar Seperates Multiple Items In One Line"
+
+    def __init__(self, *cols, style: Style | None = None, active: int|None = None) -> None:
         self.cols = cols
+        self.active = active
+        self.style = get_style(style)
 
     def __str__(self):
-        return " > ".join(self.cols)
+        if self.style:
+            sep = self.style.get("Bar.seperator", ">")
+        else:
+            sep = ">"
+        if self.active and len(self.cols) <= self.active:
+            self.cols = list(self.cols)
+            self.cols[self.active] = fx.underline(self.cols[self.active])
+        return f" {sep} ".join(self.cols)
 
 
 class Icon:
+    "Icon Desighn, An Icon For Diffrent Names"
+
     def __init__(self, name: str) -> None:
         self.name = name
 
@@ -189,30 +374,60 @@ class Icon:
 
 
 class Chain:
-    def __init__(self, *cols):
+    "Chain Desighn, A Chain For A Chain Of Values"
+
+    def __init__(self, *cols, style: Style | None = None):
         self.cols = cols
+        self.style = get_style(style)
 
     def __str__(self):
         result = ""
 
+        if self.style:
+            left = self.style.get("Chain.left", "(")
+            right = self.style.get("Chain.right", ")")
+            sep = self.style.get("Chain.seperator", "-")
+        else:
+            left = "("
+            right = ")"
+            sep = "-"
+
         for item in self.cols:
-            result += f"({item})-"
+            result += f"{left}{item}{right}{sep}"
 
         return result[:-1]
 
 
 class PrettyLogging:
-    def error(self, name, detail):
-        print(fg.red("ERROR") + " -> " + fg.cyan(name) + ": " + fg.gray(detail))
+    "Pretty Logging"
 
-    def warn(self, name, detail):
-        print(fg.yellow("WARN") + " -> " + fg.cyan(name) + ": " + fg.gray(detail))
+    def error(self, name, detail, use_stdout: bool = False):
+        text = fg.red("ERROR") + " -> " + fg.cyan(name) + ": " + fg.gray(detail)
+        if use_stdout == True:
+            print(text)
+            return
+        sys.stderr.write(text + "\n")
+        sys.stderr.flush()
 
-    def info(self, name, detail):
-        print(fg.blue("INFO") + " -> " + fg.cyan(name) + ": " + fg.gray(detail))
+    def warn(self, name, detail, use_stdout: bool = False):
+        text = fg.yellow("WARN") + " -> " + fg.cyan(name) + ": " + fg.gray(detail)
+        if use_stdout == True:
+            print(text)
+            return
+        sys.stderr.write(text + "\n")
+        sys.stderr.flush()
+
+    def info(self, name, detail, use_stdout: bool = False):
+        text = fg.blue("INFO") + " -> " + fg.cyan(name) + ": " + fg.gray(detail)
+        if use_stdout == True:
+            print(text)
+            return
+        sys.stderr.write(text + "\n")
+        sys.stderr.flush()
 
 
 def get_logger() -> PrettyLogging:
+    "if `global_logger` exsist it will just return ir, if not it will create and then remove it"
     if "global_logger" not in globals():
         globals()["global_logger"] = PrettyLogging()
         return globals()["global_logger"]
@@ -221,6 +436,7 @@ def get_logger() -> PrettyLogging:
 
 
 class Pointer:
+    "Four Directional Pointer Desighn"
     left: str = " "
     right: str = " "
     up: str = " "
@@ -228,59 +444,17 @@ class Pointer:
 
 
 def join_string(*objs: str):
+    "joins multiple string by space"
     return " ".join(objs)
 
 
-class AnsiCol:
-    def __init__(self, controls: str) -> None:
-        self.controls = controls
-
-
-class Segment:
-
-    def __init__(self, text: str, control: AnsiCol | None = None):
-        self.text = text
-        self.control = control
-
-    def __len__(self):
-        return len(self.text)
-
-    def __str__(self):
-        return "".join(list(self._render()))
-
-    def _render(self):
-        if self.control:
-            yield self.control.controls  # type: ignore
-        yield self.text
-        yield "\x1b[0m"
-
-
-class Text:
-
-    def __init__(self, text: str | list[Segment]) -> None:
-        if isinstance(text, str):
-            result = []
-            for line in text.split("\n"):
-                result.append(Segment(line))
-            self.segments: list[Segment] = result
-        else:
-            self.segments: list[Segment] = text
-
-    def __str__(self) -> str:
-        result = ""
-        for seg in self.segments:
-            result += seg.__str__() + "\n"
-        return result
-
-    def apply(self, func: Callable[[str], str]):
-        for line in self.segments:
-            line.text = func(line.text)
-
-
 class Select:
-    def __init__(self, choices: list[str]) -> None:
-        self.dt = DataTable()
+    "MultiChoice Menu (Composition DataTable)"
+
+    def __init__(self, choices: list[str], style: Style | None = None) -> None:
+        self.dt = DataTable(style)
         self.choices = choices
+        self.style = get_style(style)
         i = 0
         for choice in choices:
             self.dt.add_row(
@@ -291,7 +465,10 @@ class Select:
     def __str__(self):
         print(self.dt)
         while 1:
-            inp = input("> ")
+            if self.style:
+                inp = input(self.style.get("Select.promptText", "> "))
+            else:
+                inp = input("> ")
             try:
                 result = self.choices[int(inp)]
                 break
@@ -307,80 +484,396 @@ class Select:
         return result  # type: ignore
 
 
-class MenuBar:
-
-    def __init__(self, *options):
-        self.options = options
-
-    def __str__(self) -> str:
-        result = Bar(*self.options)
-        return str(result).replace(">", "|")
-
-
-class Widget:
-    def __str__(self) -> str: ...
-
-
-class Styler:
-    def __init__(self) -> None:
-        self.styles = {}
-
-    def set_styles(self, styles: dict):
-        self.styles = styles
-
-    def separate_by_line(self, text: str):
-        return text.split("\n")
-
-    def __call__(self, text: str, **kwds):
-        _text: list[str] = self.separate_by_line(text)
-        result: list[str] = []
-
-        for segment in _text:
-            new = segment
-
-            if "padding" in self.styles:
-                new = Padding.complete(new, self.styles["padding"])
-            if "color" in self.styles:
-                new = rgb.rgb256(*self.styles["color"]) + new
-            if "background" in self.styles:
-                new = rgb.rgb256(*self.styles["background"], bg=True) + new
-
-            result.append(new)
-
-        return "\n".join(result)
-
-
 class Br:
+    "New Line Object"
+
     def __str__(self) -> str:
         return "\n"
 
 
-class UiBase:
+class Ruler:
+    "A Ruller Object that can display a length of numbers"
 
-    STYLE: dict[str, Any] = {}
-    mounted: bool = False
+    def __init__(self, lenght: int, style: Style | None = None) -> None:
+        self.lenght = lenght
+        self.style = get_style(style)
 
-    @overload
-    def compose(self) -> Generator["Widget", None, None]: ...
+    def __str__(self) -> str:
+        result = ""
 
-    def on_render(self, string: str) -> str:
-        return string
+        if self.style:
+            begin = self.style.get("Ruler.begin", "|")
+            end = self.style.get("Ruler.end", ">")
+            line = self.style.get("Ruler.line", "-")
+            number_on_top: bool = self.style.get("Ruler.NumberOnTop?", False)
+        else:
+            begin = "|"
+            end = ">"
+            line = "-"
+            number_on_top = False
 
-    def _pack(self):
-        items = list(self.compose())
-        return map(str, items)
+        # the ruler it self
 
-    def init(self): ...
+        if number_on_top == False:
+            result += begin + (line * (self.lenght * 3)) + end + "\n"
 
-    def render(self):
-        if self.mounted == False:
-            self.mounted = True
-            self.init()
-        styler = Styler()
-        styler.set_styles(self.STYLE)
-        for string in self._pack():
-            print(styler(self.on_render(string)), end="")
+        # the numbers
 
-    def clean(self):
-        print("\x1b[H\x1b[2J", end="")
+        for i in range(self.lenght + 1):
+            result += str(i) + "  "
+        result += "\n"
 
+        if number_on_top == True:
+            result += begin + (line * (self.lenght * 3)) + end + "\n"
+
+        return result
+
+
+# (4) point
+
+
+class Mark:
+    "A Mark For Behind A Text or An Option"
+    _mode: bool
+    _override_mode: None | tuple[str, str] = None
+
+    def __init__(
+        self, string: str, mode: bool = False, style: Style | None = None
+    ) -> None:
+        self.string = string
+        self.style = get_style(style)
+        self.mode = mode
+
+    @property
+    def mode(self):
+        return self._mode
+
+    @mode.setter
+    def mode(self, new: bool):
+        self._mode = new
+
+    def __str__(self) -> str:
+        if self.style:
+            mark_on = self.style.get("Mark.on", "($)")
+            mark_off = self.style.get("Mark.off", "( )")
+        else:
+            mark_on = "($)"
+            mark_off = "( )"
+
+        if self._override_mode:
+            mark_on = self._override_mode[0]
+            mark_off = self._override_mode[1]
+
+        if self.mode:
+            mark = mark_on
+        else:
+            mark = mark_off
+
+        return f"{mark} {self.string}"
+
+
+class List:
+    "A List Displayt Of multiple items"
+
+    def __init__(
+        self, items: Iterable | list | tuple, style: Style | None = None
+    ) -> None:
+        self.style = get_style(style)
+        self.items = items
+
+    def __str__(self) -> str:
+        result = ""
+        if self.style:
+            mode = self.style.get("List.Marker.mode", True)
+        else:
+            mode = True
+
+        i = 0
+        for item in self.items:
+            m = Mark(item, mode, style=self.style)
+            if self.style:
+                if self.style.get("List.override_index", True):
+                    m._override_mode = (f"{i}.", "undefined")
+            result += f"{str(m)}\n"
+            i += 1
+
+        return result
+
+
+class Compersition:
+    "Show Relations between two object"
+
+    def __init__(self, a, b, style: Style | None = None) -> None:
+        self.a = a
+        self.b = b
+        self.style = get_style(style)
+
+    def __str__(self):
+        if self.style:
+            not_equal = self.style.get("Compersition.not_equal", "<>")
+        else:
+            not_equal = "<>"
+        result = ""
+        if self.a == self.b:
+            result += f"({self.a} == {self.b})" + " "
+        if self.a != self.b:
+            result += f"({self.a} {not_equal} {self.b})" + " "
+        if self.a < self.b:
+            result += f"({self.a} < {self.b})" + " "
+        if self.a > self.b:
+            result += f"({self.a} > {self.b})" + " "
+        return result[:-1]
+
+
+class Crop:
+    "Adds Cropping to strings"
+
+    @classmethod
+    def line(cls, string: str, amount: int = 5, offset: int = 0):
+        return string[offset:amount]
+
+    @classmethod
+    def text(
+        cls,
+        string: str,
+        measurements: Measurements | None = None,
+        amount: tuple[int, int] = (3, 5),
+        offset: tuple[int, int] = (0, 0),
+    ):
+        if (
+            measurements
+        ):  # a lot of typing errors, but trust me, this works perfectly fine
+            amount: list[int] = list(amount)
+            amount[0] = measurements.lines
+            amount[1] = measurements.columns
+            amount: tuple[int, int] = tuple(amount)
+
+        result = ""
+        lines = string.splitlines()
+        for li in range(len(string)):
+            if li >= amount[0]:
+                break
+            if li + offset[0] >= len(lines):
+                break
+            result += Crop.line(lines[li + offset[0]], amount[1], offset[1]) + "\n"
+            li += 1
+
+        return result[:-1]
+
+
+class Notification:
+    "Notification Component"
+
+    def __init__(
+        self,
+        message: str,
+        severity: Literal["Error", "Info", "Warning"] | None = None,
+        style: Style | None = None,
+    ) -> None:
+        self.message = message
+        self.severity = severity
+        self.style = get_style(style)
+
+    def __str__(self):
+        if self.style:
+            err_bg = self.style.get("Notification.error_bg", bg.red)
+            err_fg = self.style.get("Notification.error_fg", fg.black)
+            info_bg = self.style.get("Notification.info_bg", bg.blue)
+            info_fg = self.style.get("Notification.info_fg", fg.black)
+            warn_bg = self.style.get("Notification.warn_bg", bg.yellow)
+            warn_fg = self.style.get("Notification.warn_fg", fg.black)
+            left = self.style.get("Notification.left", "[")
+            right = self.style.get("Notification.right", "]")
+            do_reset = self.style.get("Notification.reset", True)
+        else:
+            err_bg = bg.red
+            err_fg = fg.black
+            info_bg = bg.blue
+            info_fg = fg.black
+            warn_bg = bg.yellow
+            warn_fg = fg.black
+            left = "["
+            right = "]"
+            do_reset = True
+
+        _bg = ""
+        _fg = ""
+        if self.severity != None:
+            match self.severity:
+                case "Error":
+                    _bg = err_bg
+                    _fg = err_fg
+                case "Info":
+                    _bg = info_bg
+                    _fg = info_fg
+                case "Warning":
+                    _bg = warn_bg
+                    _fg = warn_fg
+        return f"{_bg}{_fg}{left}{self.message}{right}{'\x1b[0m' if do_reset else ''}"
+
+
+def fill(text: str, desired_length: int, filler: str = " "):
+    "fills the infront of the `text` with the `filler` to make the text the `desired_length`"
+    if len(text) >= desired_length:
+        return text
+    amount = desired_length - len(text)
+    return text + (filler * amount)
+
+
+class Tree:
+    "Tree Component"
+
+    def __init__(self, items: list[str | list]) -> None:
+        self.items = items
+
+    def _visit_node(self, items: list[str | list], depth: int = 0):
+        result = ""
+        for item in items:
+            if isinstance(item, str):
+                result += "\n" + Padding.left(item, amount=(depth * 4))
+            elif isinstance(item, list):
+                result += Padding.left(self._visit_node(item, depth + 1))
+        return result
+
+    def __str__(self) -> str:
+        return self._visit_node(self.items)
+
+
+class Canvas:
+    "Canavs Component"
+
+    def __init__(self, width: int, height: int) -> None:
+        self.width = width
+        self.height = height
+        self._buffer: list[list[str]] = [
+            [" " for __ in range(self.width)] for _ in range(self.height)
+        ]
+
+    def addstr(self, x: int, y: int, string: str):
+        lines = string.split("\n")
+        iy = 0
+        for line in lines:
+            self.addline(x, y + iy, line)
+            iy += 1
+
+    def addline(self, x: int, y: int, string: str):
+        if len(string.split("\n")) > 1:
+            raise ValueError(
+                f"expected the string: {string!r}, would be only one line, found multiple instead!"
+            )
+        ix = 0
+        for char in string:
+            self.addpixel(x + ix, y, char)
+            ix += 1
+
+    def addpixel(self, x: int, y: int, char: str):
+        if x >= self.width:
+            x = x % self.width
+        if x < 0:
+            x = 0
+        if y >= self.height:
+            y = y % self.height
+        self._buffer[y][x] = char
+
+    def __str__(self) -> str:
+        result = ""
+        for row in self._buffer:
+            for col in row:
+                result += Canvas.RuleOneChar(col)
+            result += "\n"
+        return result
+
+    @classmethod
+    def RuleOneChar(cls, string: str):
+        "strip a string to only one char"
+        return string[0]
+
+
+class ImportanceText:
+    def __init__(self, messages: str, style: Style | None = None) -> None:
+        self.messages = messages
+        self.style = style
+
+    def __str__(self) -> str:
+        if self.style:
+            wall_fg = self.style.get("ImportanceText.fg", fg.grey)
+            wall_bg = self.style.get("ImportanceText.bg", "")
+        else:
+            wall_fg = fg.grey
+            wall_bg = ""
+        return (
+            wall_fg
+            + wall_bg
+            + "{"
+            + "\x1b[0m"
+            + f" {self.messages} "
+            + wall_fg
+            + wall_bg
+            + "}"
+            + "\x1b[0m"
+        )
+
+
+class AnsiText:
+
+    class Segment:
+        def __init__(self, text: str, is_control: bool) -> None:
+            self.text = text
+            self.is_control = is_control
+
+        def __len__(self):
+            return len(self.text)
+
+    def __init__(self, segments: list["AnsiText.Segment"]) -> None:
+        self.segs = segments
+
+    def __len__(self):
+        result = 0
+        for seg in self.segs:
+            if seg.is_control:
+                continue
+            result += len(seg)
+        return result
+
+    def __str__(self):
+        result = ""
+        for seg in self.segs:
+            result += seg.text
+        return result
+
+
+class FilesystemDeco:
+    NormalFile = lambda filename: fg.yellow(filename)
+    Directory = lambda filename: fg.blue(filename)
+    Executable = lambda filename: fg.red(filename) + fg.grey("*")
+
+
+class Paginator:
+    def __init__(
+        self,
+        default_page: int = 1,
+        amount_of_pages: int = 5,
+        style: Style | None = None,
+    ) -> None:
+        self.pages: int = amount_of_pages
+        self.pageN = default_page
+        self.style = style
+
+    def __str__(self):
+        if self.style:
+            left = self.style.get("Paginator.left", "[")
+            right = self.style.get("Paginator.right", "]")
+            active_page = self.style.get("Paginatio.active", "o")
+            unactive_page = self.style.get("Paginator.unactive", ".")
+        else:
+            left = "["
+            right = "]"
+            active_page = "o"
+            unactive_page = "."
+        result = left
+        for i in range(self.pages):
+            if i == self.pageN:
+                result += active_page
+            else:
+                result += unactive_page
+        return result + right
