@@ -1,76 +1,104 @@
 
-#     [ file: 'buff.py' ]     #
-from dataclasses import dataclass
-from pathlib import Path
-
-
-@dataclass()
-class Buffer:
-    string: str
-    fn: Path
-
-
-def join(buffs: list[Buffer], new_fn: str = "@bundle"):
-    string = ""
-    for buff in buffs:
-        string += buff.string + "\n"
-
-    return Buffer(string, Path(new_fn))
-
-#     [ file: 'config.py' ]     #
-from dataclasses import dataclass
-from pathlib import Path
+#     [ file: 'BaseUiThemes.py' ]     #
 from typing import Any
-from tkinter import Tcl
+from ansi.colour import fg
+
+#simulate [copy and paste] BaseUi `Style` object 
+class Style:
+    def __init__(self, options: dict[str, Any]):
+        self.__data__: dict[str, Any] = options
+        self.get = self.__data__.get
+
+    def __repr__(self):
+        return f"[object of 'Style' id: {hex(id(self))!r} size: {self.__sizeof__()!r}]"
+
+    def __setitem__(self, key, value):
+        self.__data__[key] = value
+
+    def __getitem__(self, key):
+        return self.__data__[key]
+
+smooth_cute = Style({
+    'ascii_border': '─',
+    'border_vertical_char': '│',
+    'ProgressBar.left': '[',
+    'ProgressBar.right': ']',
+    'ProgressBar.tip': '>',
+    'ProgressBar.lineOff': ' ',
+    'ProgressBar.lineOn': '=',
+    'ProgressBar.color:on': fg.yellow,
+    'DataTable.seperator': '│',
+    'DataTable.right': '│',
+    'DataTable.left': '│',
+    'Bar.seperator': ':',
+    'Chain.left': '{',
+    'Chain.right': '}',
+    'Chain.seperator': '~',
+    'Ruler.begin': '/',
+    'Ruler.end': '>',
+    'Ruler.line': '-',
+    'List.override_index': True,
+    'Compersition.not_equal': '!=',
+    'Notification.left': '(',
+    'Notification.right': ')',
+})
 
 
-@dataclass()
-class ResourceScheme:
-    path: str
+# note: this requires nerdfont
+so_nerdy = Style({
+    'ProgressBar.left': '\uf104',
+    'ProgressBar.right': ' \uf105',
+    'ProgressBar.tip': ' \ueabc',
+    'ProgressBar.lineOff': '\uf45b',
+    'ProgressBar.lineOn': '\uf45b',
+    'ProgressBar.color:on': fg.magenta,
+    'DataTable.seperator': '\udb84\udef1',
+    'DataTable.right': '\udb84\udef1',
+    'DataTable.left': '\udb84\udef1',
+    'Bar.seperator': '\uf142',
+    'Chain.left': '\ue0b7',
+    'Chain.right': '\ue0b5',
+    'Chain.seperator': '-',
+    'Ruler.begin': '\ue0b6',
+    'Ruler.end': '>',
+    'Ruler.line': '-',
+    'List.override_index': True,
+    'Compersition.not_equal': '!=',
+    'Notification.left': '\uf12a\ue0b7',
+    'Notification.right': '\ue0b5',
+})
 
-    @property
-    def fn(self) -> str:
-        return Path(self.path).name
+minimal_space = Style({
+    "ascii_border": '.',
+    "border_vertical_char": ':',
+    "ProgressBar.left": ' ',
+    "ProgressBar.right": ' ',
+    "ProgressBar.tip": '>',
+    "ProgressBar.lineOn": '-',
+    "ProgressBar.lineOff": ' ',
+    "ProgressBar.color:on": fg.grey,
+    "DataTable.seperator": ' : ',
+    "DataTable.left": ' ',
+    "DataTable.right": ' ',
+    "Bar.seperator": '%',
+    "Chain.left": " ",
+    "Chain.right": " ",
+    "Chain.seperator": "-",
+    "Select.promptText": ':',
+    "Ruler.begin": " ",
+    "Ruler.end": ">",
+    "Ruler.line": "-",
+    "Mark.off": " ",
+    "Mark.on": "*",
+    "Compersition.not_equal": "!=",
+    "Notification.left": "|",
+    "Notification.right": "|",
+    "ImportanceText.fg": fg.red,
+    "Paginator.left": " ",
+    "Paginator.right": " ",
+    "Input.promptText": ": "
+})
 
-
-class ConfigLoader:
-    def __init__(self, code: str) -> None:
-        self.tcl = Tcl()
-        self.__output__: dict[str, Any] = {"files": [], "output": "bundle.py", "fix-escape": False,
-                                           "add-comment-helper": False, "use-breakpoint": False}
-        self._setup()
-        self._code = code
-
-    def _setup(self):
-        self.tcl.createcommand("packadd", self.packadd)
-        self.tcl.createcommand("set-output", self.set_output)
-        self.tcl.createcommand("fix-escape", self.fix_escape)
-        self.tcl.createcommand("add-comment-helper", self.add_comment_helper)
-        self.tcl.createcommand("use-breakpoint", self.use_breakpoint)
-
-
-    def set_output(self, new_path: str):
-        self.__output__["output"] = new_path
-
-    def fix_escape(self):
-        self.__output__["fix-escape"] = True
-
-    def add_comment_helper(self):
-        self.__output__["add-comment-helper"] = True
-
-    def use_breakpoint(self):
-        self.__output__["use-breakpoint"] = True
-
-    def packadd(self, file, PriortyIndex: int|None = None):
-        if PriortyIndex and isinstance(PriortyIndex, int):
-            self.__output__["files"].insert(PriortyIndex, file)
-            return
-        self.__output__["files"].append(ResourceScheme(file))
-
-    @property
-    def config(self):
-        self.tcl.eval(self._code)
-        return self.__output__
 
 #     [ file: 'BaseUi.py' ]     #
 """
@@ -867,7 +895,7 @@ class Canvas:
 class ImportanceText:
     def __init__(self, messages: str, style: Style | None = None) -> None:
         self.messages = messages
-        self.style = style
+        self.style = get_style(style)
 
     def __str__(self) -> str:
         if self.style:
@@ -931,8 +959,8 @@ class Paginator:
         style: Style | None = None,
     ) -> None:
         self.pages: int = amount_of_pages
-        self.pageN = default_page
-        self.style = style
+        self.pageN = default_page+1
+        self.style = get_style(style)
 
     def __str__(self):
         if self.style:
@@ -947,54 +975,218 @@ class Paginator:
             unactive_page = "."
         result = left
         for i in range(self.pages):
-            if i == self.pageN:
+            if i == (self.pageN % self.pages):
                 result += active_page
             else:
                 result += unactive_page
         return result + right
 
+#     [ file: 'buff.py' ]     #
+from dataclasses import dataclass
+from pathlib import Path
+from pprint import pprint
+import sys
+from tkinter import Tcl
+from typing import Any
+
+
+
+log = get_logger()
+
+
+@dataclass()
+class Buffer:
+    string: str
+    fn: Path
+
+
+def join(buffs: list[Buffer], new_fn: str = "@bundle"):
+    string = ""
+    for buff in buffs:
+        string += buff.string + "\n"
+
+    return Buffer(string, Path(new_fn))
+
+
+@dataclass()
+class BuildSchedule:
+    dir: Path
+    files: list[str]
+
+
+class BSConfigLoader:
+    def __init__(self, code: str) -> None:
+        self.tcl = Tcl()
+        self.__output__: dict[str, Any] = {"files": []}
+        self._setup()
+        self._code = code
+
+    def _setup(self):
+        self.tcl.createcommand("include-file", self.include_file)
+
+    def include_file(self, path: str):
+        self.__output__["files"].append(path)
+
+    @property
+    def config(self):
+        self.tcl.eval(self._code)
+        return self.__output__
+
+
+def _make_schedule(channel: Path):
+    config = channel / "channel.cfg.tcl"
+    if not (config.exists):
+        log.error("ChannelConfigLoader", f"config {config} not found!")
+        sys.exit()
+
+    text = config.read_text()
+    cl = BSConfigLoader(text)
+    return BuildSchedule(channel, cl.config["files"])
+
+
+def handle_channel(channels: list[str], dir: Path) -> int|list[BuildSchedule]:
+    paths = []
+    for channel in channels:
+        _p = dir / channel
+        if not (_p.exists()):
+            return -1
+        paths.append(_p)
+
+    r = []
+    for channel in paths:
+        r.append(_make_schedule(channel))
+    pprint(r)
+    return r
+
+#     [ file: 'config.py' ]     #
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+from tkinter import Tcl
+
+
+@dataclass()
+class ResourceScheme:
+    path: str
+
+    @property
+    def fn(self) -> str:
+        return Path(self.path).name
+
+
+class ConfigLoader:
+    def __init__(self, code: str) -> None:
+        self.tcl = Tcl()
+        self.__output__: dict[str, Any] = {
+            "files": [],
+            "output": "bundle.py",
+            "fix-escape": False,
+            "add-comment-helper": False,
+            "use-breakpoint": False,
+            "channels": [],
+        }
+        self._setup()
+        self._code = code
+
+    def _setup(self):
+        self.tcl.createcommand("packadd", self.packadd)
+        self.tcl.createcommand("set-output", self.set_output)
+        self.tcl.createcommand("fix-escape", self.fix_escape)
+        self.tcl.createcommand("add-comment-helper", self.add_comment_helper)
+        self.tcl.createcommand("use-breakpoint", self.use_breakpoint)
+        self.tcl.createcommand("create-channel", self.create_channel)
+
+    def set_output(self, new_path: str):
+        self.__output__["output"] = new_path
+
+    def create_channel(self, name: str):
+        self.__output__["channels"].append(name)
+
+    def fix_escape(self):
+        self.__output__["fix-escape"] = True
+
+    def add_comment_helper(self):
+        self.__output__["add-comment-helper"] = True
+
+    def use_breakpoint(self):
+        self.__output__["use-breakpoint"] = True
+
+    def packadd(self, file, PriortyIndex: int | None = None):
+        if PriortyIndex and isinstance(PriortyIndex, int):
+            self.__output__["files"].insert(PriortyIndex, file)
+            return
+        self.__output__["files"].append(ResourceScheme(file))
+
+    @property
+    def config(self):
+        self.tcl.eval(self._code)
+        return self.__output__
+
 #     [ file: 'main.py' ]     #
 from pathlib import Path
 import sys
+import shutil
 
 help_description: str = rf"""
 
+{fg.yellow}
                               _
- _ __  _   _ _ __   __ _  ___| | __
+_ __  _   _ _ __   __ _ __   | | __
 | '_ \| | | | '_ \ / _` |/ __| |/ /
 | |_) | |_| | |_) | (_| | (__|   <
 | .__/ \__, | .__/ \__,_|\___|_|\_\
 |_|    |___/|_|
 
-
-{Padding.center(str(Title("pypack is a bundler for python")))}
+{'\x1b[0m'}
+{Padding.center(str(Title(fg.red(" pypack is a bundler for python "))))}
 """
+
+make_auto(AT_STYLE, minimal_space)
 
 
 def main(argv: list[str], argc: int):
+
+    log = get_logger()
+
+    cwd = Path(".")
 
     if argc >= 2:
         if "--help" in argv:
             print(help_description)
             print()
             return
-
-    log = get_logger()
-
-    cwd = Path(".")
+        cwd = Path(argv[-1])
+        if not (cwd.exists()):
+            log.warn("MetadataLoader", f"file {argv[-1]!r} does not exists!")
+            cwd = Path(".")
 
     config_path = cwd / "pypack.cfg.tcl"
-
+    channel_folder = cwd / "pack"
     if not (config_path.is_file()) or not (config_path.exists()):
         log.error("Config", f"{config_path} not found or is a directory.")
+        return
+
+    if not (channel_folder.is_dir()) and channel_folder.exists():
+        log.error("Config", "invalid channel directory 'pack/'")
         return
 
     cl = ConfigLoader(config_path.read_text())
     cfg = cl.config
 
+    if channel_folder.exists():
+        build_schedule = handle_channel(cfg["channels"], channel_folder)
+
+        if build_schedule == -1:
+            log.error("BuildSchedule", "Failed Due To A Channel Non-Existing!")
+            return
+
     buffs: list[Buffer] = []
 
     for file in cfg.get("files", []):
+        p = Path(file.path)
+        if not (p.exists()):
+            log.warn("FileLoader", f"file {file.path!r} not found! skipping.")
+            continue
         new = Buffer(Path(file.path).read_text(), file.fn)
 
         buffs.append(new)
@@ -1005,11 +1197,13 @@ def main(argv: list[str], argc: int):
             result += f"\n#{Padding.center(f"[ file: {buff.fn!r} ]")}#\n"
         for line in buff.string.splitlines():
             no_space = line.replace(" ", "")
-            if "pack:ignore" in no_space and not ("pack:escape" in no_space): #pack: escape
+            if "pack:ignore" in no_space and not (  # pack: escape
+                "pack:escape" in no_space
+            ):  # pack: escape
                 log.info("Bundler", f"removing `{line=}` from the final bundle.")
                 continue
             if "pack:escape" in no_space:
-                if cfg.get("fix-escape", False):
+                if cfg.get("fix-escape", False):  # pack: escape
                     line = line.replace("\\", "\\\\")
                 log.warn("Bundler", f"escaping `{line=}`.")
             if (
@@ -1020,7 +1214,7 @@ def main(argv: list[str], argc: int):
                 print(Notification("Breakpoint Hit!", severity="Info"))
                 print(f"Current Line: {line!r}")
                 try:
-                    match input(fg.cyan("[Enter/edit] Continue? ")).lower():
+                    match input(fg.cyan("[Enter/edit/remove] Continue? ")).lower():
                         case "edit" | "e":
                             try:
                                 line = input("Please Enter New Content\n-> ")
@@ -1033,16 +1227,39 @@ def main(argv: list[str], argc: int):
                                 pass
                         case "enter" | "c":
                             pass
+                        case "remove" | "r" | "dd":
+                            line = "# [This Line Was Deleted]"
                 except KeyboardInterrupt:
                     pass
                 print()
             result += line + "\n"
 
     try:
-        Path(cfg.get("output")).write_text(result)  # pyright: ignore
+        (cwd / Path(cfg.get("output"))).write_text(result)  # pyright: ignore
     except Exception as err:
         log.error("Save()", repr(err))
     log.info("Writer", f"done writing the bundle to {cfg.get("output")=}.")
+    if channel_folder.exists():
+        log.info("PostBuilder", "Starting Build.")
+        if isinstance(build_schedule, int):
+            return
+
+        def copy_file(_in: Path, out: Path):
+            _in.write_text(out.read_text())
+
+        if not ((cwd / "build").exists()):
+            (cwd / "build").mkdir()
+
+        for sched in build_schedule:
+            log.info("PostBuilder", f"building channel {sched.dir.name!r}")
+            dest = (cwd / "build") / sched.dir.name
+            dest.mkdir(exist_ok=True)
+            for file in sched.files:
+                log.info("PostBuilder", f"Copying File: {file!r}")
+                _f = Path(sched.dir / file)
+                copy_file(dest / file, _f)
+
+        log.info("PostBuilder", "Build Complete.")
 
     return
 

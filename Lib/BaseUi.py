@@ -792,7 +792,7 @@ class Canvas:
 class ImportanceText:
     def __init__(self, messages: str, style: Style | None = None) -> None:
         self.messages = messages
-        self.style = style
+        self.style = get_style(style)
 
     def __str__(self) -> str:
         if self.style:
@@ -856,8 +856,8 @@ class Paginator:
         style: Style | None = None,
     ) -> None:
         self.pages: int = amount_of_pages
-        self.pageN = default_page
-        self.style = style
+        self.pageN = default_page+1
+        self.style = get_style(style)
 
     def __str__(self):
         if self.style:
@@ -872,7 +872,7 @@ class Paginator:
             unactive_page = "."
         result = left
         for i in range(self.pages):
-            if i == self.pageN:
+            if i == (self.pageN % self.pages):
                 result += active_page
             else:
                 result += unactive_page

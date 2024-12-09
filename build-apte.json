@@ -52,6 +52,14 @@
   {
    "optionDest": "bootloader_ignore_signals",
    "value": false
+  },
+  {
+   "optionDest": "datas",
+   "value": "C:/Program Files/Python313/Lib/tcl8;tcl8/"
+  },
+  {
+   "optionDest": "datas",
+   "value": "C:/Program Files/Python313/Lib/tk8.6;tk8.6/"
   }
  ],
  "nonPyinstallerOptions": {

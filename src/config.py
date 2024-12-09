@@ -16,8 +16,14 @@ class ResourceScheme:
 class ConfigLoader:
     def __init__(self, code: str) -> None:
         self.tcl = Tcl()
-        self.__output__: dict[str, Any] = {"files": [], "output": "bundle.py", "fix-escape": False,
-                                           "add-comment-helper": False, "use-breakpoint": False}
+        self.__output__: dict[str, Any] = {
+            "files": [],
+            "output": "bundle.py",
+            "fix-escape": False,
+            "add-comment-helper": False,
+            "use-breakpoint": False,
+            "channels": [],
+        }
         self._setup()
         self._code = code
 
@@ -27,10 +33,13 @@ class ConfigLoader:
         self.tcl.createcommand("fix-escape", self.fix_escape)
         self.tcl.createcommand("add-comment-helper", self.add_comment_helper)
         self.tcl.createcommand("use-breakpoint", self.use_breakpoint)
-
+        self.tcl.createcommand("create-channel", self.create_channel)
 
     def set_output(self, new_path: str):
         self.__output__["output"] = new_path
+
+    def create_channel(self, name: str):
+        self.__output__["channels"].append(name)
 
     def fix_escape(self):
         self.__output__["fix-escape"] = True
@@ -41,7 +50,7 @@ class ConfigLoader:
     def use_breakpoint(self):
         self.__output__["use-breakpoint"] = True
 
-    def packadd(self, file, PriortyIndex: int|None = None):
+    def packadd(self, file, PriortyIndex: int | None = None):
         if PriortyIndex and isinstance(PriortyIndex, int):
             self.__output__["files"].insert(PriortyIndex, file)
             return
