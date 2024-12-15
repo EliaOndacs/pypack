@@ -39,17 +39,27 @@ def main(argv: list[str], argc: int):
             log.warn("MetadataLoader", f"file {argv[-1]!r} does not exists!")
             cwd = Path(".")
 
-    config_path = cwd / "pypack.cfg.tcl"
-    channel_folder = cwd / "pack"
-    if not (config_path.is_file()) or not (config_path.exists()):
-        log.error("Config", f"{config_path} not found or is a directory.")
+    if (cwd / "pypack.cfg.ecl").exists():
+        config_path = cwd / "pypack.cfg.ecl"
+        if not (config_path.is_file()):
+            log.error("Config", f"file {config_path} is an directory.")
+            return
+    elif (cwd / "pypack.cfg.tcl").exists():
+        config_path = cwd / "pypack.cfg.tcl"
+        if not (config_path.is_file()):
+            log.error("Config", f"file {config_path} is an directory.")
+            return
+    else:
+        log.error("Config", "'./pypack.cfg.{ .tcl, .ecl }' not found.")
         return
 
+    channel_folder = cwd / "pack"
     if not (channel_folder.is_dir()) and channel_folder.exists():
         log.error("Config", "invalid channel directory 'pack/'")
         return
 
-    cl = ConfigLoader(config_path.read_text())
+    cm = "tcl" if config_path.suffix[1:] == "tcl" else "ecl"
+    cl = ConfigLoader(config_path.read_text(), cm)
     cfg = cl.config
 
     if channel_folder.exists():
@@ -120,7 +130,7 @@ def main(argv: list[str], argc: int):
     log.info("Writer", f"done writing the bundle to {cfg.get("output")=}.")
     if channel_folder.exists():
         log.info("PostBuilder", "Starting Build.")
-        if isinstance(build_schedule, int):
+        if isinstance(build_schedule, int):  # pyright: ignore
             return
 
         def copy_file(_in: Path, out: Path):
@@ -129,7 +139,7 @@ def main(argv: list[str], argc: int):
         if not ((cwd / "build").exists()):
             (cwd / "build").mkdir()
 
-        for sched in build_schedule:
+        for sched in build_schedule:  # pyright: ignore
             log.info("PostBuilder", f"building channel {sched.dir.name!r}")
             dest = (cwd / "build") / sched.dir.name
             dest.mkdir(exist_ok=True)

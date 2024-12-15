@@ -981,6 +981,113 @@ class Paginator:
                 result += unactive_page
         return result + right
 
+#     [ file: 'ecl.py' ]     #
+from shlex import shlex
+from dataclasses import dataclass
+from typing import Any
+
+@dataclass
+class Flag:
+    name: str
+
+    def __repr__(self) -> str:
+        return f"Flag('-{self.name}')"
+
+@dataclass
+class Data[T]:
+    value: T
+
+    def __repr__(self) -> str:
+        return str(self.value)
+
+class String(Data[str]):
+    ...
+class Integer(Data[int]):
+    ...
+class Boolean(Data[bool]):
+    ...
+class Word(Data[str]):
+    ...
+
+@dataclass
+class Command:
+    name: str
+
+type action = tuple[Command, list[String | Integer | Boolean | Flag | Word ]]
+
+def parse_line(line: str) -> action|None:
+    parser = shlex(line, punctuation_chars=True)
+    tokens: list = []
+    name = parser.get_token()
+    if not (name):
+        return None
+    tokens.append(Command(name))
+    arguments: list[String | Integer | Boolean | Flag | Word ] = []
+    for arg in parser:
+        if arg[0] == "-":
+            arguments.append(Flag(arg[1:]))
+            continue
+        if arg.isdigit():
+            arguments.append(Integer(int(arg)))
+            continue
+        if arg == "true":
+            arguments.append(Boolean(True))
+            continue
+        if arg == "false":
+            arguments.append(Boolean(False))
+            continue
+        if arg[0] == '"':
+            string = arg[1:-1]
+            arguments.append(String(string))
+            continue
+        arguments.append(Word(arg))
+    tokens.append(arguments)
+    return tokens[0], tokens[1]
+
+
+def parse(text: str) -> list[action]:
+    result: list[action] = []
+    for line in text.splitlines():
+        cmd = parse_line(line)
+        if cmd:
+            result.append(cmd)
+    return result
+
+
+def execute_line(action, scope: dict[str, Any]):
+
+    command = action[0]
+    prams = action[1]
+
+    match command.name:
+        case "set":
+            if not(isinstance(prams[0], Word)):
+                print(f"|    error: expected an variable name!\n|    got {type(prams[0]).__name__!r} instead!")
+                exit()
+            scope[prams[0].value] = prams[1]
+
+        case "print":
+            if isinstance(prams[0], Word):
+                print(scope.get(prams[0].value, "undefined"))
+            else:
+                print(prams[0].value)
+
+        case _:
+            if command.name in scope:
+                scope = scope[command.name](scope, *prams)
+    return scope
+
+def execute(ast: list[action], scope: dict[str, Any]|None):
+    scope = scope or {}
+    for line in ast:
+        scope = execute_line(line, scope) # type: ignore
+    return scope
+
+def program(text: str, *, default_scope: dict[str, Any]|None = None):
+    ast = parse(text)
+    result = execute(ast, default_scope)
+    return result
+
 #     [ file: 'buff.py' ]     #
 from dataclasses import dataclass
 from pathlib import Path
@@ -1061,7 +1168,7 @@ def handle_channel(channels: list[str], dir: Path) -> int|list[BuildSchedule]:
 #     [ file: 'config.py' ]     #
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 from tkinter import Tcl
 
 
@@ -1075,8 +1182,7 @@ class ResourceScheme:
 
 
 class ConfigLoader:
-    def __init__(self, code: str) -> None:
-        self.tcl = Tcl()
+    def __init__(self, code: str, mode: Literal["tcl", "ecl"]) -> None:
         self.__output__: dict[str, Any] = {
             "files": [],
             "output": "bundle.py",
@@ -1085,10 +1191,25 @@ class ConfigLoader:
             "use-breakpoint": False,
             "channels": [],
         }
-        self._setup()
+        self.mode = mode
+        if self.mode == "tcl":
+            self._setup_tcl()
+        if self.mode == "ecl":
+            self._setup_ecl()
         self._code = code
 
-    def _setup(self):
+    def _setup_ecl(self):
+        self.pylibs = {
+            "Packadd": self.packadd_ecl,
+            "SetOutput": self.set_output_ecl,
+            "FixEscape": self.fix_escape_ecl,
+            "AddCommentHelper": self.add_comment_helper_ecl,
+            "UseBreakpoint": self.use_breakpoint_ecl,
+            "CreateChannel": self.create_channel_ecl
+        }
+
+    def _setup_tcl(self):
+        self.tcl = Tcl()
         self.tcl.createcommand("packadd", self.packadd)
         self.tcl.createcommand("set-output", self.set_output)
         self.tcl.createcommand("fix-escape", self.fix_escape)
@@ -1099,27 +1220,57 @@ class ConfigLoader:
     def set_output(self, new_path: str):
         self.__output__["output"] = new_path
 
+    def set_output_ecl(self, scope, new_path: String):
+        self.__output__["output"] = new_path.value
+        return scope
+
     def create_channel(self, name: str):
         self.__output__["channels"].append(name)
+
+    def create_channel_ecl(self, scope, name: String):
+        self.__output__["channels"].append(name.value)
+        return scope
 
     def fix_escape(self):
         self.__output__["fix-escape"] = True
 
+    def fix_escape_ecl(self, scope):
+        self.__output__["fix-escape"] = True
+        return scope
+
     def add_comment_helper(self):
         self.__output__["add-comment-helper"] = True
+
+    def add_comment_helper_ecl(self, scope):
+        self.__output__["add-comment-helper"] = True
+        return scope
 
     def use_breakpoint(self):
         self.__output__["use-breakpoint"] = True
 
+    def use_breakpoint_ecl(self, scope):
+        self.__output__["use-breakpoint"] = True
+        return scope
+
     def packadd(self, file, PriortyIndex: int | None = None):
         if PriortyIndex and isinstance(PriortyIndex, int):
-            self.__output__["files"].insert(PriortyIndex, file)
+            self.__output__["files"].insert(PriortyIndex, ResourceScheme(file))
             return
         self.__output__["files"].append(ResourceScheme(file))
 
+    def packadd_ecl(self, scope, file: String, PriortyIndex: Integer | None = None):
+        if PriortyIndex and isinstance(PriortyIndex, Integer):
+            self.__output__["files"].insert(PriortyIndex.value, ResourceScheme(file.value))
+            return
+        self.__output__["files"].append(ResourceScheme(file.value))
+        return scope
+
     @property
     def config(self):
-        self.tcl.eval(self._code)
+        if self.mode == "tcl":
+            self.tcl.eval(self._code)
+        if self.mode == "ecl":
+            program(self._code, default_scope=self.pylibs)
         return self.__output__
 
 #     [ file: 'main.py' ]     #
@@ -1160,17 +1311,27 @@ def main(argv: list[str], argc: int):
             log.warn("MetadataLoader", f"file {argv[-1]!r} does not exists!")
             cwd = Path(".")
 
-    config_path = cwd / "pypack.cfg.tcl"
-    channel_folder = cwd / "pack"
-    if not (config_path.is_file()) or not (config_path.exists()):
-        log.error("Config", f"{config_path} not found or is a directory.")
+    if (cwd / "pypack.cfg.ecl").exists():
+        config_path = cwd / "pypack.cfg.ecl"
+        if not (config_path.is_file()):
+            log.error("Config", f"file {config_path} is an directory.")
+            return
+    elif (cwd / "pypack.cfg.tcl").exists():
+        config_path = cwd / "pypack.cfg.tcl"
+        if not (config_path.is_file()):
+            log.error("Config", f"file {config_path} is an directory.")
+            return
+    else:
+        log.error("Config", "'./pypack.cfg.{ .tcl, .ecl }' not found.")
         return
 
+    channel_folder = cwd / "pack"
     if not (channel_folder.is_dir()) and channel_folder.exists():
         log.error("Config", "invalid channel directory 'pack/'")
         return
 
-    cl = ConfigLoader(config_path.read_text())
+    cm = "tcl" if config_path.suffix[1:] == "tcl" else "ecl"
+    cl = ConfigLoader(config_path.read_text(), cm)
     cfg = cl.config
 
     if channel_folder.exists():
@@ -1241,7 +1402,7 @@ def main(argv: list[str], argc: int):
     log.info("Writer", f"done writing the bundle to {cfg.get("output")=}.")
     if channel_folder.exists():
         log.info("PostBuilder", "Starting Build.")
-        if isinstance(build_schedule, int):
+        if isinstance(build_schedule, int):  # pyright: ignore
             return
 
         def copy_file(_in: Path, out: Path):
@@ -1250,7 +1411,7 @@ def main(argv: list[str], argc: int):
         if not ((cwd / "build").exists()):
             (cwd / "build").mkdir()
 
-        for sched in build_schedule:
+        for sched in build_schedule:  # pyright: ignore
             log.info("PostBuilder", f"building channel {sched.dir.name!r}")
             dest = (cwd / "build") / sched.dir.name
             dest.mkdir(exist_ok=True)
