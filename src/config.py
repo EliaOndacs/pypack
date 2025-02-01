@@ -2,8 +2,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 from tkinter import Tcl
-from Lib.ecl import * # pack: ignore
+from Lib.ecl import *  # pack: ignore
+from Lib.BaseUi import get_logger # pack: ignore
 
+logger = get_logger()
 
 @dataclass()
 class ResourceScheme:
@@ -38,7 +40,7 @@ class ConfigLoader:
             "FixEscape": self.fix_escape_ecl,
             "AddCommentHelper": self.add_comment_helper_ecl,
             "UseBreakpoint": self.use_breakpoint_ecl,
-            "CreateChannel": self.create_channel_ecl
+            "CreateChannel": self.create_channel_ecl,
         }
 
     def _setup_tcl(self):
@@ -93,7 +95,9 @@ class ConfigLoader:
 
     def packadd_ecl(self, scope, file: String, PriortyIndex: Integer | None = None):
         if PriortyIndex and isinstance(PriortyIndex, Integer):
-            self.__output__["files"].insert(PriortyIndex.value, ResourceScheme(file.value))
+            self.__output__["files"].insert(
+                PriortyIndex.value, ResourceScheme(file.value)
+            )
             return
         self.__output__["files"].append(ResourceScheme(file.value))
         return scope

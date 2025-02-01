@@ -1,19 +1,61 @@
 """
 **BaseUi**
 
-the base ui library for a centerlised theme cli ui among SysCoreutil & SysEnv
+the base ui library for a centralized theme cli ui among SysCoreutil & SysEnv
 
 """
 
+from dataclasses import dataclass
 from typing import (
     Any,
     Generator,
     Iterable,
     Literal,
     NamedTuple,
+    Protocol,
+    Callable,
+    runtime_checkable,
 )
 from ansi.colour import *  # type: ignore
+from enum import StrEnum
 import sys
+
+
+@runtime_checkable
+class Renderable(Protocol):
+    def __str__(self) -> str: ...
+
+
+class Component(Renderable):
+    
+    def __init__(self, states: dict[str, Any]) -> None:
+        self.states = states
+
+    def compose(self) -> Generator["Renderable|Component"]:
+        yield from ()
+
+    @property
+    def package(
+        self,
+    ) -> Generator["Renderable|Component", None, None]:
+        yield from self.compose()
+
+    def render(self):
+        result = ""
+        for item in self.package:
+            if isinstance(item, Renderable):
+                result += str(item)
+            elif isinstance(item, Component):
+                result += str(item)
+
+        return result
+
+    def __str__(self):
+        return self.render()
+
+
+class codes(StrEnum):
+    CLEAR = "\x1b[h\x1b[2J"
 
 
 class Style:
@@ -50,11 +92,19 @@ def make_auto(_type, instance):
 
 
 def get_style(style: Style | None):
-    "get the the aut style if exsist or None or the past style pram"
+    "get the the auto style if exists or None or the past style pram"
     if style:
         return style
     if "@auto[style]" in globals():
         return globals()["@auto[style]"]
+
+
+def get_display(display: "Display|None"):
+    "get the auto display if exists or None or the past display pram"
+    if display:
+        return display
+    if "@auto[display]" in globals():
+        return globals()["@auto[display]"]
 
 
 class Animation:
@@ -106,7 +156,7 @@ class Block:
 
     def __init__(self, raw: str) -> None:
         self._raw = raw  # very unsafe, but might be required later
-        self.measurments = Measurements.measure(self._raw)
+        self.measurements = Measurements.measure(self._raw)
         self.text: list[str] = self._raw.split("\n")
 
     def render(self) -> Generator[str, None, None]:
@@ -116,8 +166,99 @@ class Block:
     def __str__(self) -> str:
         return "\n".join(self.text)
 
+
+#                    (ln   col)
+type Position = tuple[int, int]
+
+
+class Selection:
+    def __init__(self, text: str, start: Position, end: Position):
+        self.text = text
+        self.start = start
+        self.end = end
+
+    def __str__(self) -> str:
+        lines = self.text.splitlines()
+        start_line, start_col = self.start
+        end_line, end_col = self.end
+
+        # Ensure the positions are within bounds
+        if (
+            start_line < 0
+            or end_line < 0
+            or start_line >= len(lines)
+            or end_line >= len(lines)
+        ):
+            return ""
+
+        if start_line == end_line:
+            # Selection is within the same line
+            return lines[start_line][start_col:end_col]
+
+        # Selection spans multiple lines
+        selected_text = []
+
+        # Add the text from the start line
+        selected_text.append(lines[start_line][start_col:])
+
+        # Add the text from the lines in between
+        for line in range(start_line + 1, end_line):
+            selected_text.append(lines[line])
+
+        # Add the text from the end line
+        selected_text.append(lines[end_line][:end_col])
+
+        return "\n".join(selected_text)
+
+
+class Display:
+    def __init__(self, inital: str = "", *, auto: bool = False):
+        self.text = inital
+        self._alive: bool = True
+        if auto == True:
+            make_auto(AT_DISPLAY, self)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args): ...
+
+    def loop(self, hook: Callable[[], str]):
+        while self._alive:
+            self.update(hook())
+            print(codes.CLEAR, end="")
+            print(str(self), end="")
+
+    def update(self, new: str):
+        self.text = new
+
+    def __str__(self) -> str:
+        return self.text
+
+
+def ParseCode(code: str):
+    _code = code.encode()
+    i = 0
+    i += 1
+    if _code[i] != 91:
+        get_logger().error("ParseCode()", "invalid escape code!")
+        return
+    i += 1
+    _prams = _code[i:].decode().split(";")
+    mode = _prams[0]
+    prams = _prams[1:]
+    return mode, prams
+
+
+def GenerateCode(mode: int, prams: list[Renderable]) -> str:
+    _mode = f"\x1b[{mode}"
+    _prams = ";".join(str(seg) for seg in prams)
+    return f"{_mode}{_prams}"
+
+
 def deleteText(text: str):
-    return "\b"*len(text)
+    return "\b" * len(text)
+
 
 def ascii_border(text, style: Style | None = None):
     "make an ascii border around the `text`"
@@ -161,8 +302,8 @@ class ProgressBar:
         self.style = get_style(style)
         self.size = size
 
-    def update(self, ammount: int = 1):
-        self.value += ammount
+    def update(self, amount: int = 1):
+        self.value += amount
 
     def reset(self):
         self.value = 0
@@ -185,12 +326,12 @@ class ProgressBar:
             line_off = "-"
             on_color = fg.cyan
             off_color = fg.grey
-        ammount_filled: int = self.value * self.size // self.max
-        for i in range(ammount_filled):
+        amount_filled: int = self.value * self.size // self.max
+        for i in range(amount_filled):
             result += (
-                (on_color + tip) if i == (ammount_filled - 1) else (on_color + line_on)
+                (on_color + tip) if i == (amount_filled - 1) else (on_color + line_on)
             )
-        result += (off_color + line_off) * (self.size - ammount_filled)
+        result += (off_color + line_off) * (self.size - amount_filled)
 
         return f"{left}{result}{right}\x1b[0m"
 
@@ -322,7 +463,7 @@ class SwitchText:
 class Input:
     "Input Component (Only Fires When Try To Convert To A String And Will Return The UserInput)"
 
-    def __init__(self, prompt: str = "", style: Style|None = None):
+    def __init__(self, prompt: str = "", style: Style | None = None):
         self.prompt = prompt
         self.style = get_style(style)
 
@@ -347,7 +488,9 @@ class Title:
 class Bar:
     "Bar Seperates Multiple Items In One Line"
 
-    def __init__(self, *cols, style: Style | None = None, active: int|None = None) -> None:
+    def __init__(
+        self, *cols, style: Style | None = None, active: int | None = None
+    ) -> None:
         self.cols = cols
         self.active = active
         self.style = get_style(style)
@@ -419,6 +562,14 @@ class PrettyLogging:
 
     def info(self, name, detail, use_stdout: bool = False):
         text = fg.blue("INFO") + " -> " + fg.cyan(name) + ": " + fg.gray(detail)
+        if use_stdout == True:
+            print(text)
+            return
+        sys.stderr.write(text + "\n")
+        sys.stderr.flush()
+
+    def debug(self, name, detail, use_stdout: bool = False):
+        text = fg.green("DEBUG") + " -> " + fg.cyan(name) + ": " + fg.gray(detail)
         if use_stdout == True:
             print(text)
             return
@@ -775,6 +926,15 @@ class Canvas:
             y = y % self.height
         self._buffer[y][x] = char
 
+    def getpixel(self, x: int, y: int):
+        if x >= self.width:
+            x = x % self.width
+        if x < 0:
+            x = 0
+        if y >= self.height:
+            y = y % self.height
+        return self._buffer[y][x]
+
     def __str__(self) -> str:
         result = ""
         for row in self._buffer:
@@ -856,7 +1016,7 @@ class Paginator:
         style: Style | None = None,
     ) -> None:
         self.pages: int = amount_of_pages
-        self.pageN = default_page+1
+        self.pageN = default_page + 1
         self.style = get_style(style)
 
     def __str__(self):
@@ -877,3 +1037,48 @@ class Paginator:
             else:
                 result += unactive_page
         return result + right
+
+
+def Compose(items: list[Renderable]) -> str:
+    return "\n".join(*[str(obj) for obj in items])
+
+
+class Page(Renderable):
+    def __init__(self, content: str, db: dict[str, Any] | None = {}) -> None:
+        if not (db):
+            db = {}
+        self.db: dict[str, Any] = db
+        self.content = content
+
+    def __str__(self) -> str:
+        result = self.content
+        for key in self.db:
+            value = self.db[key]
+            result = result.replace(f";{key};", value)
+        return result
+
+
+class Scene(Renderable):
+    def __init__(self, pages: list[Page]) -> None:
+        self.pages = pages
+        self.current_page = 1
+        self.paginator = Paginator(self.current_page, len(self.pages))
+
+    def __str__(self) -> str:
+        self.paginator.pageN = self.current_page
+        print(
+            (Measurements.measure(str(self.pages[self.current_page])).columns + 2) * "_"
+        )
+        print(str(self.pages[self.current_page]))
+        print(
+            (Measurements.measure(str(self.pages[self.current_page])).columns + 2) * "_"
+        )
+        print(Padding.center(str(self.paginator)))
+        _pagen: str = input("/")
+        if _pagen == "q":
+            return ""
+        pagen = int(_pagen)
+        self.current_page = pagen
+        str(self)
+        return ""
+

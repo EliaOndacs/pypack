@@ -77,7 +77,6 @@ def main(argv: list[str], argc: int):
             log.warn("FileLoader", f"file {file.path!r} not found! skipping.")
             continue
         new = Buffer(Path(file.path).read_text(), file.fn)
-
         buffs.append(new)
 
     result: str = ""

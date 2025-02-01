@@ -16,7 +16,6 @@ class Buffer:
     string: str
     fn: Path
 
-
 def join(buffs: list[Buffer], new_fn: str = "@bundle"):
     string = ""
     for buff in buffs:
@@ -61,7 +60,7 @@ def _make_schedule(channel: Path):
     return BuildSchedule(channel, cl.config["files"])
 
 
-def handle_channel(channels: list[str], dir: Path) -> int|list[BuildSchedule]:
+def handle_channel(channels: list[str], dir: Path) -> int | list[BuildSchedule]:
     paths = []
     for channel in channels:
         _p = dir / channel
