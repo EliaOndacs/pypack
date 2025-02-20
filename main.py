@@ -122,6 +122,8 @@ def main(argv: list[str], argc: int):
                 print()
             result += line + "\n"
 
+    (cwd / Path(cfg.get("output"))).parent.mkdir(parents=True, exist_ok=True) # pyright: ignore
+
     try:
         (cwd / Path(cfg.get("output"))).write_text(result)  # pyright: ignore
     except Exception as err:

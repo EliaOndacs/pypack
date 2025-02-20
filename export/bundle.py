@@ -1311,20 +1311,6 @@ class Buffer:
     string: str
     fn: Path
 
-    def ignore(self, ignores: list[tuple[str, int]]):
-        for batch in ignores:
-            p = Path(batch[0]).name
-            log.debug("Buffer()->ignore", f"{p==self.fn}, {self.fn=}, {p=}")
-            if p == self.fn:
-                line = batch[1]
-                print(f"{line=} {type(line)=}")
-                # log.debug("Buffer()->ignore", f"{self.string.splitlines()[line]=}")
-                log.info("Bundler", f"removing `{line=}` from the file {batch[0]!r}")
-                # n = self.string.splitlines()
-                # del n[batch[1]]
-                # self.string = "\n".join(n)
-
-
 def join(buffs: list[Buffer], new_fn: str = "@bundle"):
     string = ""
     for buff in buffs:
@@ -1409,7 +1395,6 @@ class ConfigLoader:
             "add-comment-helper": False,
             "use-breakpoint": False,
             "channels": [],
-            "ignores": [],
         }
         self.mode = mode
         if self.mode == "tcl":
@@ -1426,7 +1411,6 @@ class ConfigLoader:
             "AddCommentHelper": self.add_comment_helper_ecl,
             "UseBreakpoint": self.use_breakpoint_ecl,
             "CreateChannel": self.create_channel_ecl,
-            "Ignore": self.ignore_ecl
         }
 
     def _setup_tcl(self):
@@ -1437,21 +1421,6 @@ class ConfigLoader:
         self.tcl.createcommand("add-comment-helper", self.add_comment_helper)
         self.tcl.createcommand("use-breakpoint", self.use_breakpoint)
         self.tcl.createcommand("create-channel", self.create_channel)
-        self.tcl.createcommand("ignore", self.ignore)
-
-    def ignore(self, file: str, line: int):
-        if ResourceScheme(file) not in self.__output__["files"]:
-            logger.warn("Config()->ignore", f"file {file!r} not found in the packed files. (skiping)")
-            return
-        print(f"ignore [ {file=} {line=} ]")
-        self.__output__["ignores"].append((file, line))
-
-    def ignore_ecl(self, scope, file: String, line: Integer):
-        if ResourceScheme(file.value) not in self.__output__["files"]:
-            logger.warn("Config()->ignore", f"file {file.value!r} not found in the packed files. (skiping)")
-            return
-        self.__output__["ignores"].append((file.value, line.value))
-        return scope
 
     def set_output(self, new_path: str):
         self.__output__["output"] = new_path
@@ -1600,7 +1569,6 @@ def main(argv: list[str], argc: int):
             ):  # pack: escape
                 log.info("Bundler", f"removing `{line=}` from the final bundle.")
                 continue
-            buff.ignore(cfg.get("ignores", []))
             if "pack:escape" in no_space:
                 if cfg.get("fix-escape", False):  # pack: escape
                     line = line.replace("\\", "\\\\")
@@ -1632,6 +1600,8 @@ def main(argv: list[str], argc: int):
                     pass
                 print()
             result += line + "\n"
+
+    (cwd / Path(cfg.get("output"))).parent.mkdir(parents=True, exist_ok=True) # pyright: ignore
 
     try:
         (cwd / Path(cfg.get("output"))).write_text(result)  # pyright: ignore
